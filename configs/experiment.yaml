@@ -1,0 +1,106 @@
+# ProToPhen Experiment Configuration
+# ==================================
+
+experiment_name: "protophen_v0.1.0"
+description: "Initial ProToPhen training experiment"
+tags:
+  - cell_painting
+  - protein_phenotype
+
+# Data Configuration
+data:
+  protein_library_path: null  # Set to path or use command line
+  phenotype_data_path: null
+  cache_dir: "./cache"
+  output_dir: "./outputs"
+  
+  min_sequence_length: 10
+  max_sequence_length: 2000
+  
+  train_fraction: 0.8
+  val_fraction: 0.1
+  test_fraction: 0.1
+  split_seed: 42
+
+# Embedding Configuration
+embedding:
+  esm_model_name: "esm2_t33_650M_UR50D"
+  esm_layer: -1
+  esm_pooling: "mean"
+  
+  use_structure: false
+  include_physicochemical: true
+  
+  fusion_method: "concatenate"
+  
+  batch_size: 8
+  device: "cuda"
+  use_fp16: true
+
+# Phenotype Processing Configuration
+phenotype:
+  feature_selection_method: "variance"
+  n_features_to_keep: null
+  
+  plate_normalisation: "robust_mad"
+  feature_normalisation: "standardise"
+  
+  batch_correction_method: null
+  
+  clip_outliers: true
+  outlier_threshold: 5.0
+
+# Model Configuration
+model:
+  protein_embedding_dim: 1280  # Will be updated based on actual embeddings
+  hidden_dims:
+    - 1024
+    - 512
+  dropout_rate: 0.1
+  activation: "gelu"
+  
+  predict_cell_painting: true
+  predict_viability: false
+  predict_transcriptomics: false
+  
+  cell_painting_dim: 1500
+  
+  task_weights:
+    cell_painting: 1.0
+    viability: 0.5
+    transcriptomics: 0.5
+
+# Training Configuration
+training:
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  optimiser: "adamw"
+  scheduler: "cosine"
+  warmup_steps: 100
+  
+  epochs: 100
+  batch_size: 32
+  gradient_accumulation_steps: 1
+  max_grad_norm: 1.0
+  
+  early_stopping: true
+  patience: 10
+  min_delta: 1.0e-4
+  
+  save_every_n_epochs: 10
+  keep_n_checkpoints: 3
+  
+  log_every_n_steps: 10
+  evaluate_every_n_epochs: 1
+  
+  seed: 42
+
+# Active Learning Configuration (for future use)
+active_learning:
+  uncertainty_method: "mc_dropout"
+  n_mc_samples: 20
+  
+  acquisition_function: "expected_improvement"
+  
+  batch_size: 10
+  diversity_weight: 0.3

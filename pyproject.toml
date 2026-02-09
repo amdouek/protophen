@@ -1,0 +1,189 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "protophen"
+version = "0.1.0"
+description = "A foundation model for predicting cellular responses to de novo-designed proteins"
+readme = "README.md"
+license = {text = "GPL-3.0-or-later"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Alon M Douek", email = "Alon.Douek@monash.edu"},
+]
+keywords = [
+    "protein design",
+    "cell painting",
+    "foundation model",
+    "phenotype prediction",
+    "machine learning",
+    "active learning",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    # Core scientific computing
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "scipy>=1.10.0",
+    
+    # Deep learning
+    # NOTE: For GPU support, install PyTorch separately BEFORE installing protophen:
+    #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+    # The torch dependency below ensures torch is present but may install CPU-only version
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
+    
+    # ESM (Facebook's protein language model)
+    "fair-esm>=2.0.0",
+    
+    # Protein analysis tools
+    "biopython>=1.81",
+    
+    # Machine learning utilities
+    "scikit-learn>=1.3.0",
+    
+    # Visualization
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "umap-learn>=0.5.0",
+    
+    # Configuration management
+    "pyyaml>=6.0",
+    "omegaconf>=2.3.0",
+    
+    # Utilities
+    "tqdm>=4.65.0",
+    "loguru>=0.7.0",
+    "rich>=13.0.0",
+    
+    # Data validation
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.0.270",
+    "mypy>=1.3.0",
+    "pre-commit>=3.3.0",
+    "ipykernel>=6.23.0",
+    "jupyter>=1.0.0",
+    "jupytext>=1.14.0",
+]
+
+structure = [
+    # For ESMFold structure prediction (optional, heavy)
+    "biotite>=0.37.0",
+]
+
+tensorboard = [
+    # For training visualisation and logging
+    "tensorboard>=2.13.0",
+]
+
+clustering = [
+    # For advanced clustering methods
+    "hdbscan>=0.8.29",
+]
+
+# Future: deployment dependencies (Session 10)
+# serving = [
+#     "fastapi>=0.100.0",
+#     "uvicorn>=0.23.0",
+#     "prometheus-client>=0.17.0",
+# ]
+
+full = [
+    "protophen[dev,structure,tensorboard,clustering]",
+]
+
+[project.scripts]
+# CLI entry points - these reference protophen/scripts/ subpackage
+# Each script module must have a main() function
+protophen-embed = "protophen.scripts.extract_embeddings:main"
+protophen-train = "protophen.scripts.train_model:main"
+protophen-al = "protophen.scripts.run_active_learning:main"
+
+[project.urls]
+Homepage = "https://github.com/amdouek/protophen"
+Documentation = "https://github.com/amdouek/protophen#readme"
+Repository = "https://github.com/amdouek/protophen"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["protophen*"]
+
+[tool.setuptools.package-data]
+protophen = ["py.typed"]
+
+# === Tool Configurations ===
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.isort]
+known-first-party = ["protophen"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=protophen --cov-report=term-missing"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "gpu: marks tests requiring GPU (deselect with '-m \"not gpu\"')",
+]
