@@ -100,6 +100,14 @@ clustering = [
     "hdbscan>=0.8.29",
 ]
 
+jumpcp = [
+    # S3 access
+    "boto3>=1.28.0",
+    "s3fs>=2023.6.0",
+    # Parquet I/O for profile caching
+    "pyarrow>=12.0.0",
+]
+
 # Future: deployment dependencies (Session 10)
 # serving = [
 #     "fastapi>=0.100.0",
@@ -108,7 +116,7 @@ clustering = [
 # ]
 
 full = [
-    "protophen[dev,structure,tensorboard,clustering]",
+    "protophen[dev,structure,tensorboard,clustering,jumpcp]",
 ]
 
 [project.scripts]
@@ -117,6 +125,8 @@ full = [
 protophen-embed = "protophen.scripts.extract_embeddings:main"
 protophen-train = "protophen.scripts.train_model:main"
 protophen-al = "protophen.scripts.run_active_learning:main"
+protophen-jumpcp-download = "scripts.download_jumpcp:main"
+protophen-jumpcp-curate = "scripts.curate_pretraining:main"
 
 [project.urls]
 Homepage = "https://github.com/amdouek/protophen"

@@ -1,0 +1,64 @@
+# =============================================================================
+# JUMP-CP Data Access Configuration
+# =============================================================================
+# Configuration for accessing and curating JUMP Cell Painting data.
+# The Cell Painting Gallery S3 bucket is publicly accessible (anonymous).
+# See: https://github.com/jump-cellpainting/datasets
+
+# -----------------------------------------------------------------------------
+# S3 Settings
+# -----------------------------------------------------------------------------
+# The cellpainting-gallery bucket requires no AWS credentials.
+s3_bucket: "cellpainting-gallery"
+s3_prefix: "cpg0016-jump"
+s3_region: "us-east-1"
+
+# -----------------------------------------------------------------------------
+# Metadata URLs
+# -----------------------------------------------------------------------------
+# Raw CSV metadata tables hosted on GitHub.
+# These are small (~1-50 MB each) and fetched via HTTPS.
+metadata_urls:
+  well: "https://raw.githubusercontent.com/jump-cellpainting/datasets/main/metadata/well.csv.gz"
+  plate: "https://raw.githubusercontent.com/jump-cellpainting/datasets/main/metadata/plate.csv.gz"
+  orf: "https://raw.githubusercontent.com/jump-cellpainting/datasets/main/metadata/orf.csv.gz"
+  crispr: "https://raw.githubusercontent.com/jump-cellpainting/datasets/main/metadata/crispr.csv.gz"
+  compound: "https://raw.githubusercontent.com/jump-cellpainting/datasets/main/metadata/compound.csv.gz"
+
+# -----------------------------------------------------------------------------
+# Cache
+# -----------------------------------------------------------------------------
+cache_dir: "./data/raw/jumpcp"
+max_cache_size_gb: 50.0
+
+# -----------------------------------------------------------------------------
+# Download Behaviour
+# -----------------------------------------------------------------------------
+request_timeout: 120
+max_retries: 3
+
+# -----------------------------------------------------------------------------
+# Perturbation Selection
+# -----------------------------------------------------------------------------
+# Which perturbation types to consider.
+# "orf" = overexpression (most relevant for protein work)
+# "crispr" = CRISPR knockout (complementary loss-of-function)
+# "compound" = small molecules (lower priority for ProToPhen)
+perturbation_types:
+  - "orf"
+  - "crispr"
+
+# -----------------------------------------------------------------------------
+# Curation Defaults
+# -----------------------------------------------------------------------------
+max_genes_orf: 15000
+max_genes_crispr: 17000
+min_replicates: 2
+min_cell_count: 50
+aggregation_method: "median"
+
+# -----------------------------------------------------------------------------
+# Gene → Sequence Mapping
+# -----------------------------------------------------------------------------
+uniprot_batch_size: 200
+organism_id: "9606"  # Homo sapiens

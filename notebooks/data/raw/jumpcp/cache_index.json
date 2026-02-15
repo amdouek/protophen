@@ -1,0 +1,92 @@
+{
+  "metadata/orf": {
+    "key": "metadata/orf",
+    "path": "data\\raw\\jumpcp\\metadata\\orf.parquet",
+    "size_bytes": 900471,
+    "n_rows": 15132,
+    "n_cols": 12,
+    "created_at": 1771067799.94333,
+    "accessed_at": 1771158182.5167155,
+    "source": "https://raw.githubusercontent.com/jump-cellpainting/datasets/main/metadata/orf.csv.gz"
+  },
+  "metadata/plate": {
+    "key": "metadata/plate",
+    "path": "data\\raw\\jumpcp\\metadata\\plate.parquet",
+    "size_bytes": 22450,
+    "n_rows": 2525,
+    "n_cols": 4,
+    "created_at": 1771067799.962877,
+    "accessed_at": 1771158184.1991966,
+    "source": "https://raw.githubusercontent.com/jump-cellpainting/datasets/main/metadata/plate.csv.gz"
+  },
+  "metadata/crispr": {
+    "key": "metadata/crispr",
+    "path": "data\\raw\\jumpcp\\metadata\\crispr.parquet",
+    "size_bytes": 160474,
+    "n_rows": 7977,
+    "n_cols": 3,
+    "created_at": 1771067868.9097238,
+    "accessed_at": 1771158182.5301545,
+    "source": "https://raw.githubusercontent.com/jump-cellpainting/datasets/main/metadata/crispr.csv.gz"
+  },
+  "profiles/source_1__Batch1_20221004__UL000109": {
+    "key": "profiles/source_1__Batch1_20221004__UL000109",
+    "path": "data\\raw\\jumpcp\\profiles\\source_1__Batch1_20221004__UL000109.parquet",
+    "size_bytes": 37018585,
+    "n_rows": 1472,
+    "n_cols": 4765,
+    "created_at": 1771068746.4500484,
+    "accessed_at": 1771146469.800965,
+    "source": "s3://cellpainting-gallery/cpg0016-jump/source_1/workspace/profiles/Batch1_20221004/UL000109/UL000109.parquet"
+  },
+  "metadata/well": {
+    "key": "metadata/well",
+    "path": "data\\raw\\jumpcp\\metadata\\well.parquet",
+    "size_bytes": 5498186,
+    "n_rows": 1151808,
+    "n_cols": 4,
+    "created_at": 1771087496.8358634,
+    "accessed_at": 1771158183.238119,
+    "source": "https://raw.githubusercontent.com/jump-cellpainting/datasets/main/metadata/well.csv.gz"
+  },
+  "profiles/source_1__Batch1_20221004__UL001641": {
+    "key": "profiles/source_1__Batch1_20221004__UL001641",
+    "path": "data\\raw\\jumpcp\\profiles\\source_1__Batch1_20221004__UL001641.parquet",
+    "size_bytes": 37228538,
+    "n_rows": 1472,
+    "n_cols": 4765,
+    "created_at": 1771088322.2911327,
+    "accessed_at": 1771088803.9435756,
+    "source": "s3://cellpainting-gallery/cpg0016-jump/source_1/workspace/profiles/Batch1_20221004/UL001641/UL001641.parquet"
+  },
+  "profiles/source_1__Batch1_20221004__UL001643": {
+    "key": "profiles/source_1__Batch1_20221004__UL001643",
+    "path": "data\\raw\\jumpcp\\profiles\\source_1__Batch1_20221004__UL001643.parquet",
+    "size_bytes": 37164084,
+    "n_rows": 1472,
+    "n_cols": 4765,
+    "created_at": 1771088406.845117,
+    "accessed_at": 1771088804.3097157,
+    "source": "s3://cellpainting-gallery/cpg0016-jump/source_1/workspace/profiles/Batch1_20221004/UL001643/UL001643.parquet"
+  },
+  "metadata/uniprot_sequences_9606": {
+    "key": "metadata/uniprot_sequences_9606",
+    "path": "data\\raw\\jumpcp\\metadata\\uniprot_sequences_9606.parquet",
+    "size_bytes": 6996,
+    "n_rows": 5,
+    "n_cols": 2,
+    "created_at": 1771089041.639374,
+    "accessed_at": 1771158324.2040029,
+    "source": "uniprot_api"
+  },
+  "profiles/source_4__2021_04_26_Batch1__BR00117035": {
+    "key": "profiles/source_4__2021_04_26_Batch1__BR00117035",
+    "path": "data\\raw\\jumpcp\\profiles\\source_4__2021_04_26_Batch1__BR00117035.parquet",
+    "size_bytes": 12693582,
+    "n_rows": 384,
+    "n_cols": 4765,
+    "created_at": 1771158191.2634676,
+    "accessed_at": 1771158191.2634676,
+    "source": "s3://cellpainting-gallery/cpg0016-jump/source_4/workspace/profiles/2021_04_26_Batch1/BR00117035/BR00117035.parquet"
+  }
+}
