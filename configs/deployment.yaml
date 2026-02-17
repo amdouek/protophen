@@ -1,0 +1,70 @@
+# ProToPhen Deployment Configuration
+# ====================================
+# Settings for the serving infrastructure.
+#
+# This file is used by:
+#   - scripts/serve.py    (API server launcher)
+#   - scripts/batch_inference.py (batch processing CLI)
+#
+# Override any setting via CLI flags; CLI takes precedence over this file.
+
+# --- Logging ---
+logging:
+  level: "INFO" # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  log_file: null
+
+# --- Inference Pipeline ---
+# Config for the InferencePipeline that maps sequence to prediction.
+pipeline:
+  checkpoint_path: null  # Set at launch time, via CLI --checkpoint, or via registry
+  esm_model_name: "esm2_t33_650M_UR50D"
+  esm_layer: -1
+  esm_pooling: "mean"
+  esm_batch_size: 8
+  include_physicochemical: true
+  include_dipeptide: true
+  fusion_method: "concatenate"
+  fusion_normalise: true
+  device: "auto"  # auto | cuda | cpu | mps
+  use_fp16: true
+  embedding_cache_dir: "./cache/embeddings"
+  max_batch_size: 64
+  max_sequence_length: 2000
+  default_mc_samples: 20
+
+# --- API Server ---
+# Settings for the FastAPI / Uvicorn server.
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 1          # >1 only when NOT using GPU (each worker loads full model)
+  reload: false       # Set true for development
+  cors_origins:
+    - "*"
+  log_level: "info"   # Uvicorn log level: debug | info | warning | error
+
+# --- Monitoring ---
+# Controls latency/throughput tracking, drift detection, and Prometheus export. 
+monitoring:
+  window_size: 1000
+  enable_drift_detection: true
+  drift_window_size: 500
+  drift_significance: 0.01
+  log_predictions: true
+  log_every_n: 100
+  enable_prometheus: false
+  prometheus_port: 9090
+  track_regression_metrics: true
+
+# --- Model Registry ---
+# Filesystem-backed model versioning. The API server can load the production model directly from the registry instead of a bare checkpoint path.
+registry:
+  registry_dir: "./model_registry"
+  max_versions: 20
+
+# --- Feedback ---
+# Settings for the active-learning feedback loop endpoint.
+# Feedback entries are persisted to disk as JSONL for durability.
+feedback:
+  persist_dir: "./data/feedback"  # null = in memory only
+  trigger_reselection: false      # default for incoming requests

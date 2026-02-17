@@ -108,25 +108,44 @@ jumpcp = [
     "pyarrow>=12.0.0",
 ]
 
-# Future: deployment dependencies (Session 10)
-# serving = [
-#     "fastapi>=0.100.0",
-#     "uvicorn>=0.23.0",
-#     "prometheus-client>=0.17.0",
-# ]
+serving = [
+    # REST API framework
+    "fastapi>=0.100.0",
+    # ASGI server
+    "uvicorn[standard]>=0.23.0",
+    # Prometheus metrics (optional at runtime, but included for convenience)
+    "prometheus-client>=0.17.0",
+    # HTTP test client for FastAPI (used by tests and notebooks)
+    "httpx>=0.24.0",
+]
+
+mlflow = [
+    # Experiment tracking and model registry (optional advanced backend)
+    "mlflow>=2.5.0",
+]
+
+onnx = [
+    # Model export to ONNX for cross-framework deployment
+    "onnx>=1.14.0",
+    "onnxruntime>=1.15.0",
+]
 
 full = [
-    "protophen[dev,structure,tensorboard,clustering,jumpcp]",
+    "protophen[dev,structure,tensorboard,clustering,jumpcp,serving,mlflow,onnx]",
 ]
 
 [project.scripts]
 # CLI entry points - these reference protophen/scripts/ subpackage
 # Each script module must have a main() function
+# Subpackage scripts (installed as part of ProToPhen)
 protophen-embed = "protophen.scripts.extract_embeddings:main"
 protophen-train = "protophen.scripts.train_model:main"
 protophen-al = "protophen.scripts.run_active_learning:main"
+# Top-level scripts (run directly or via entry point)
 protophen-jumpcp-download = "scripts.download_jumpcp:main"
 protophen-jumpcp-curate = "scripts.curate_pretraining:main"
+protophen-serve = "scripts.serve:main"
+protophen-batch-inference = "scripts.batch_inference:main"
 
 [project.urls]
 Homepage = "https://github.com/amdouek/protophen"
@@ -196,4 +215,5 @@ addopts = "-v --cov=protophen --cov-report=term-missing"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "gpu: marks tests requiring GPU (deselect with '-m \"not gpu\"')",
+    "serving: marks tests requiring serving extras (deselect with '-m \"not serving\"')"
 ]

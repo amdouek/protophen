@@ -1,0 +1,170 @@
+# ==============================================================================
+# ProToPhen — Docker Compose Service Orchestration
+# ==============================================================================
+#
+# Usage:
+#   # CPU mode
+#   docker compose up protophen-cpu
+#
+#   # GPU mode (requires NVIDIA Container Toolkit)
+#   docker compose up protophen-gpu
+#
+#   # With Prometheus monitoring
+#   docker compose --profile monitoring up
+#
+#   # Development mode (auto-reload, source mounted)
+#   docker compose up protophen-dev
+#
+# Notes:
+#   - Mount your checkpoint directory into /app/checkpoints
+#   - Mount model_registry into /app/model_registry for persistent versioning
+#   - Set PROTOPHEN_CHECKPOINT in .env or export before running
+
+version: "3.9"
+
+# ==============================================================================
+# Shared configuration anchors
+# ==============================================================================
+x-common-volumes: &common-volumes
+  - ./checkpoints:/app/checkpoints:ro
+  - ./model_registry:/app/model_registry
+  - ./cache:/app/cache
+  - ./configs:/app/configs:ro
+
+x-common-env: &common-env
+  PROTOPHEN_CHECKPOINT: ${PROTOPHEN_CHECKPOINT:-/app/checkpoints/best.pt}
+  PROTOPHEN_LOG_LEVEL: ${PROTOPHEN_LOG_LEVEL:-info}
+
+# ==============================================================================
+# Services
+# ==============================================================================
+services:
+
+  # ---------- CPU inference service ------------------------------------------
+  protophen-cpu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: protophen:latest
+    container_name: protophen-cpu
+    ports:
+      - "${PROTOPHEN_PORT:-8000}:8000"
+    volumes: *common-volumes
+    environment:
+      <<: *common-env
+    command:
+      - "--checkpoint"
+      - "${PROTOPHEN_CHECKPOINT:-/app/checkpoints/best.pt}"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+  # ---------- GPU inference service ------------------------------------------
+  protophen-gpu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gpu
+    image: protophen:gpu
+    container_name: protophen-gpu
+    ports:
+      - "${PROTOPHEN_PORT:-8000}:8000"
+    volumes: *common-volumes
+    environment:
+      <<: *common-env
+      NVIDIA_VISIBLE_DEVICES: all
+    command:
+      - "--checkpoint"
+      - "${PROTOPHEN_CHECKPOINT:-/app/checkpoints/best.pt}"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
+
+  # ---------- Development service (hot-reload, source mount) -----------------
+  protophen-dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: protophen:latest
+    container_name: protophen-dev
+    ports:
+      - "${PROTOPHEN_PORT:-8000}:8000"
+    volumes:
+      - ..:/app                          # Full source mount for hot reload
+      - ./checkpoints:/app/checkpoints:ro
+      - ./model_registry:/app/model_registry
+      - ./cache:/app/cache
+    environment:
+      <<: *common-env
+    command:
+      - "--checkpoint"
+      - "${PROTOPHEN_CHECKPOINT:-/app/checkpoints/best.pt}"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+      - "--reload"
+    restart: "no"
+
+  # ---------- Prometheus (optional, activated with --profile monitoring) ------
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: protophen-prometheus
+    profiles:
+      - monitoring
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    restart: unless-stopped
+    depends_on:
+      - protophen-cpu
+
+  # ---------- Grafana (optional, activated with --profile monitoring) ---------
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: protophen-grafana
+    profiles:
+      - monitoring
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-protophen}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+# ==============================================================================
+# Volumes
+# ==============================================================================
+volumes:
+  grafana-data:
+    driver: local

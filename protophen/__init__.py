@@ -6,6 +6,7 @@ This package provides tools for:
 - Processing Cell Painting phenotypic data
 - Training protein-to-phenotype prediction models
 - Active learning for experiment selection
+- Serving infrastructure for deployment (optional, requires ``pip install "protophen[serving]"``)
 """
 
 __version__ = "0.1.0"
@@ -49,3 +50,36 @@ __all__ = [
     # Version
     "__version__",
 ]
+
+# =========================================================================
+# Lazy imports for optional serving subpackage
+# =========================================================================
+# Serving components require ``pip install protophen[serving]`` (FastAPI, uvicorn, etc.).
+# They are exposed at the top level for convenience but we guard the import so the core package works without serving extras.
+
+def __getattr__(name: str):
+    """Lazy-load serving exports on first access."""
+    _SERVING_EXPORTS = {
+        "InferencePipeline",
+        "PipelineConfig",
+        "ModelRegistry",
+        "RegistryConfig",
+        "ModelVersion",
+        "PredictionMonitor",
+        "MonitoringConfig",
+        "DriftDetector",
+        "PredictionQualityTracker",
+        "create_app",
+    }
+
+    if name in _SERVING_EXPORTS:
+        try:
+            import protophen.serving as _serving
+            return getattr(_serving, name)
+        except ImportError as exc:
+            raise ImportError(
+                f"'{name}' requires the serving extras. "
+                f"Install with: pip install 'protophen[serving]'"
+            ) from exc
+
+    raise AttributeError(f"module 'protophen' has no attribute '{name}'")

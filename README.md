@@ -25,6 +25,11 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install in development mode
 pip install -e ".[dev]"
+
+# Optional extras
+pip install -e ".[serving]"     # REST API and deployment
+pip install -e ".[jumpcp]"      # JUMP-CP data access
+pip install -e ".[full]"        # Everything!
 ```
 
 ## Quick Start
@@ -57,10 +62,13 @@ Detailed tutorials are available as Jupyter notebooks in the `notebooks/` direct
 
 | Notebook | Description |
 |----------|-------------|
+| `00_jumpcp_exploration.ipynb` | Examine and curate the JUMP-CP pretraining data |
 | `01_protein_embeddings.ipynb` | Extract ESM-2 and physicochemical embeddings |
 | `02_phenotype_exploration.ipynb` | Process and explore Cell Painting data |
 | `03_model_training.ipynb` | Train protein-to-phenotype prediction models |
 | `04_active_learning.ipynb` | Intelligent experiment selection |
+| `05_deployment.ipynb` | Serving and Deployment Infrastructure |
+
 
 ## Core Workflows
 
@@ -137,6 +145,38 @@ python scripts/train_model.py --config configs/experiment.yaml
 python scripts/run_active_learning.py --model checkpoints/best.pt --candidates pool.json
 ```
 
+### Serving
+```bash
+# Install serving dependencies
+pip install 'protophen[serving]'
+
+# Serve from a checkpoint
+python scripts/serve.py --checkpoint checkpoints/best.pt
+
+# Serve from the model registry
+python scripts/serve.py --reigstry ./model_registry
+
+# Serve with full configuration
+python scripts/serve.py --checkpoint checkpoints/best.pt --config configs/deployment.yaml
+
+# API available at http://localhost:8000
+# Interactive docs at http://localhost:8000/docs
+```
+
+```bash
+# Batch inference (FASTA or CSV input, Parquet or CSV output)
+python scripts/batch_inference.py \
+    --input proteins.fasta \
+    --checkpoint checkpoints/best.pt \
+    --output predictions.parquet \
+    --uncertainty
+
+# Docker deployment
+docker build -t protophen:latest -f docker/Dockerfile .
+docker run -p 8000:8000 -v ./checkpoints:/app/checkpoints:ro \
+    protophen:latest python scripts/serve.py --checkpoint /app/checkpoints/best.pt
+```
+
 ## Project Structure
 ```markdown
 protophen/
@@ -148,10 +188,26 @@ protophen/
 ├── training/
 ├── active_learning/
 ├── analysis/
-├── utils/
-└── scripts/
-    ├── __init__.py
-    ├── extract_embeddings.py
-    ├── train_model.py
-    └── run_active_learning.py
+├── serving/
+└── utils/
+
+scripts/                  # Top-level CLI scripts
+├── serve.py
+├── batch_inference.py
+├── extract_embeddings.py
+├── train_model.py
+├── run_active_learning.py
+├── download_jumpcp.py
+└── curate_pretraining.py
+
+configs/                  # Configuration files
+├── default.yaml
+├── experiment.yaml
+├── deployment.yaml
+└── jumpcp.yaml
+
+docker/                   # Container definitions
+├── Dockerfile
+├── Dockerfile.gpu
+└── docker-compose.yml
 ```
