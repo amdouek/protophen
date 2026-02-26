@@ -8,7 +8,12 @@ Provides:
   regression metrics from ``training.metrics`` when ground-truth feedback
   is available.
 - **DriftDetector**: Detects distribution shift between recent predictions
-  and a reference (training) distribution using the KS test.
+  and a reference (training) distribution using the KS test. Also supports
+  latent-space drift detection. When Phase 2 Trainer.predict() outputs
+  ``cell_painting_latent_predictions`` alongside ``cell_painting_predictions``,
+  drift detection can operate in the compressed latent space (e.g., 128-256 dims)
+  where the KS test has better statistical power than in the full reconstructed
+  space (e.g., ~1500 dims).
 
 If ``prometheus_client`` is installed the monitor also exposes Prometheus
 gauge / histogram / counter objects; otherwise it operates in
@@ -43,6 +48,7 @@ class MonitoringConfig:
     enable_drift_detection: bool = True
     drift_window_size: int = 500
     drift_significance: float = 0.01  # KS-test p-value threshold
+    prefer_latent_drift: bool = True  # Prefer latent-space drift detection when available
 
     # Logging
     log_predictions: bool = True
@@ -254,6 +260,7 @@ class PredictionMonitor:
         sequence_length: int,
         predictions: Optional[Dict[str, np.ndarray]] = None,
         protein_id: Optional[str] = None,
+        phenotype_latent: Optional[np.ndarray] = None,
     ) -> None:
         """
         Record a successful prediction request.
@@ -263,6 +270,7 @@ class PredictionMonitor:
             sequence_length: Length of the input sequence.
             predictions: Dict mapping task name → predicted array.
             protein_id: Optional protein hash/ID for later feedback matching.
+            phenotype_latent: Optional autoencoder latent vector. When provided and ``prefer_latent_drift`` is True, drift detection is performed in the latent space instead of (or in addition to) the reconstructed space.
         """
         self._total_requests += 1
         self._latencies.append(latency_ms)
@@ -286,6 +294,16 @@ class PredictionMonitor:
             if protein_id is not None and predictions:
                 primary_task = next(iter(predictions))
                 self._cache_prediction(protein_id, predictions[primary_task])
+
+        # Latent-space drift detection
+        if (
+            phenotype_latent is not None
+            and self._drift_detector is not None
+            and self.config.prefer_latent_drift
+        ):
+            self._drift_detector.add_observation(
+                "cell_painting_latent", phenotype_latent
+            )
 
         # Prometheus
         if self._prom is not None:
@@ -448,6 +466,14 @@ class DriftDetector:
     statistics using :meth:`set_reference`, which accepts any 1-D array
     (e.g., per-sample mean predictions from the validation set computed
     during ``Trainer.evaluate()``).
+    
+    The detector also handles ``cell_painting_latent`` as a first-class
+    task key. When ``set_reference_from_trainer`` receives keys ending in
+    ``_latent_predictions``, it registers them alongside the reconstructed
+    -space references. Drift detection in the latent space is more statistically
+    powerful than in the full reconstructed space, because the KS operates on
+    per-sample scalar summaries (mean), which are less noisy when computed
+    from fewer dimensions.
 
     Attributes:
         window_size: Number of observations per comparison window.
@@ -497,6 +523,9 @@ class DriftDetector:
         The ``Trainer.predict()`` method (Session 6) returns a dict with
         keys like ``cell_painting_predictions``.  This convenience method
         extracts the per-sample means and registers them as references.
+        
+        Also handles ``cell_painting_latent_predictions`` keys produced by
+        Phase 2 trainers.
 
         Args:
             trainer_predictions: Output of ``Trainer.predict()``.
@@ -510,6 +539,13 @@ class DriftDetector:
                 else:
                     means = arr
                 self.set_reference(task, means)
+                
+                if "latent" in task:
+                    logger.info(
+                        f"Latent-space drift reference set for '{task}' "
+                        f"(n={len(means)}, dims={arr.shape[1] if arr.ndim > 1 else 1}). "
+                        f"Latent-space drift detection is preferred for statistical power."
+                    )
 
     def add_observation(self, task: str, prediction: np.ndarray) -> None:
         """
@@ -517,6 +553,10 @@ class DriftDetector:
 
         If no explicit reference has been set, the first ``window_size``
         observations become the reference automatically.
+        
+        Args:
+            task: Task name (e.g., ``"cell_painting"`` or ``"cell_painting_latent"`` for latent-space monitoring).
+            prediction: Prediction array (any dimensionality; reduced to scalar mean internally).
         """
         mean_val = float(np.mean(prediction))
         self._current.setdefault(task, [])
@@ -553,19 +593,40 @@ class DriftDetector:
 
             # Slide the window
             self._current[task] = self._current[task][-self.window_size:]
+            
+    @property
+    def has_latent_reference(self) -> bool:
+        """Whether a latent-space reference has been set."""
+        return any(
+            "latent" in task and self._is_reference_set.get(task, False)
+            for task in self._reference
+        )
+        
+    @property
+    def monitored_tasks(self) -> List[str]:
+        """List of all tasks being monitored for drift."""
+        return list(
+            set(list(self._reference.keys()) + list(self._current.keys()))
+        )
 
     def report(self) -> Dict[str, Any]:
         """Return drift status for all monitored tasks."""
-        return {
+        tasks = set(
+            list(self._reference.keys()) + list(self._current.keys())
+        )
+        per_task = {
             task: {
                 "drift_detected": self._drift_flags.get(task, False),
                 "p_value": round(self._last_p_values.get(task, 1.0), 6),
                 "reference_set": self._is_reference_set.get(task, False),
                 "current_observations": len(self._current.get(task, [])),
+                "is_latent_space": "latent" in task,
             }
-            for task in set(
-                list(self._reference.keys()) + list(self._current.keys())
-            )
+            for task in tasks
+        }
+        return {
+            **per_task,
+            "_latent_drift_available": self.has_latent_reference,
         }
 
     def reset(self) -> None:

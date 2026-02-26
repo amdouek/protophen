@@ -101,6 +101,15 @@ class PredictionRequest(BaseModel):
         False,
         description="Whether to include the latent representation.",
     )
+    return_phenotype_latent: bool = Field(
+        False,
+        description=(
+            "Whether to include the phenotype autoencoder latent representation."
+            "Only available when the model uses a pre-trained autoencoder decoder "
+            "(Phase 2 checkpoint). The phenotype latent is the intermediated "
+            "representation between the protein encoder and the decoder."
+        ),
+    )
     return_uncertainty: bool = Field(
         False,
         description="Whether to return MC-Dropout uncertainty estimates.",
@@ -130,6 +139,13 @@ class BatchPredictionRequest(BaseModel):
     )
     tasks: Optional[List[str]] = None
     return_latent: bool = False
+    return_phenotype_latent: bool = Field(
+        False,
+        description=(
+            "Whether to include the phenotype autoencoder latent. "
+            "See PredictionRequest.return_phenotype_latent for details."
+        ),
+    )
     return_uncertainty: bool = False
     n_uncertainty_samples: int = Field(20, ge=2, le=200)
     model_version: Optional[str] = None
@@ -167,7 +183,15 @@ class FeedbackRequest(BaseModel):
 # =============================================================================
 
 class PredictionResponse(BaseModel):
-    """Response for a single-protein prediction."""
+    """Response for a single-protein prediction.
+    
+    Includes handling for the ``phenotype_latent`` field for the autoencoder latent representation. This is distinct from ``latent`` (protein encoder output):
+    
+        - ``latent``: Output of the protein encoder (what the model predicts).
+        - ``phenotype_latent``: Output of the autoencoder encoder / input to the autoencoder decoder (the prediction target space).
+        
+    In Phase 2 models, these are the same vector flowing through different conceptual stages; both are exposed independently for analysis.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -176,7 +200,18 @@ class PredictionResponse(BaseModel):
     sequence_length: int
     predictions: List[TaskPrediction]
     uncertainty: Optional[List[UncertaintyOutput]] = None
-    latent: Optional[List[float]] = None
+    latent: Optional[List[float]] = Field(
+        None,
+        description="Protein encoder latent representation.",
+    )
+    phenotype_latent: Optional[List[float]] = Field(
+        None,
+        description=(
+            "Phenotype autoencoder latent representation. "
+            "Available only when the model uses a pre-trained autoencoder "
+            "decoder (Phase 2 checkpoint) and return_phenotype_latent=True."
+        ),
+    )
     model_version: str
     inference_time_ms: float = Field(
         ..., description="Wall-clock inference time in milliseconds."
@@ -224,6 +259,22 @@ class ModelInfoResponse(BaseModel):
     fusion_method: str
     device: str
     loaded_at: str = Field(..., description="ISO-8601 timestamp of model load.")
+    has_autoencoder_decoder: bool = Field(
+        False,
+        description="Whether the model uses a pre-trained autoencoder decoder.",
+    )
+    pretraining_phase: Optional[int] = Field(
+        None,
+        description="Pre-training phase (1 or 2) if from a pre-training checkpoint.",
+    )
+    autoencoder_latent_dim: Optional[int] = Field(
+        None,
+        description="Autoencoder latent dimenstion (if autoencoder decoder is present).",
+    )
+    autoencoder_variational: Optional[bool] = Field(
+        None,
+        description="Whether the autoencoder uses a variational bottleneck.",
+    )
 
 
 class HealthResponse(BaseModel):

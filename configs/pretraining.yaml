@@ -1,0 +1,127 @@
+# =============================================================================
+# ProToPhen — Two-Phase Pre-training Configuration
+# =============================================================================
+#
+# Phase 1: Train PhenotypeAutoencoder on ALL JUMP-CP plates to learn the
+#           structure of Cell Painting phenotype space.
+# Phase 2: Freeze autoencoder decoder; train protein encoder to predict the
+#           autoencoder latent from ESM-2 embeddings using ORF/CRISPR plates.
+#
+# Load with:
+#   from protophen.models.autoencoder import PretrainingConfig
+#   config = PretrainingConfig.from_yaml("configs/pretraining.yaml")
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Autoencoder architecture
+# ---------------------------------------------------------------------------
+autoencoder:
+  input_dim: 1500                       # Cell Painting features after curation
+  latent_dim: 256                       # Bottleneck dimension
+  encoder_hidden_dims: [1024, 512]      # Encoder MLP widths
+  decoder_hidden_dims: null             # null → symmetric (reversed encoder)
+  activation: gelu
+  dropout: 0.1
+  use_layer_norm: true
+  use_batch_norm: false
+  use_residual: true
+  use_skip_connections: true
+  variational: false                    # Set true for VAE mode
+  weight_init: kaiming
+
+# ---------------------------------------------------------------------------
+# Phase 1: Phenotype space pre-training (ALL plates)
+# ---------------------------------------------------------------------------
+phase1:
+  data:
+    plate_types:
+      - ORF
+      - CRISPR
+      - COMPOUND
+      - TARGET1
+      - TARGET2
+      - DMSO
+      - COMPOUND_EMPTY
+      - POSCON8
+    cache_dir: ./data/processed/pretraining
+    max_samples: null                   # null = use all available
+    min_replicates: 2                   # Minimum replicates for contrastive loss
+
+  loss:
+    reconstruction_weight: 1.0
+    contrastive_weight: 0.1
+    kl_weight: 0.0                      # >0 only when variational=true
+    reconstruction_type: mse            # "mse" or "huber"
+    huber_delta: 1.0
+    contrastive_temperature: 0.1
+    feature_group_weights: null         # Optional: {Cells_: 1.0, Cytoplasm_: 1.2, ...}
+
+  training:
+    epochs: 100
+    batch_size: 256
+    learning_rate: 0.001
+    weight_decay: 0.01
+    optimiser: adamw
+    scheduler: cosine
+    warmup_epochs: 5
+    min_lr: 0.000001
+    gradient_accumulation_steps: 1
+    max_grad_norm: 1.0
+    use_amp: true
+    seed: 42
+
+  evaluation:
+    eval_every_n_epochs: 5
+    compute_silhouette: true
+    compute_replicate_correlation: true
+
+# ---------------------------------------------------------------------------
+# Phase 2: Protein→phenotype mapping (ORF + CRISPR + TARGET)
+# ---------------------------------------------------------------------------
+phase2:
+  data:
+    plate_types:
+      - ORF
+      - CRISPR
+      - TARGET1
+      - TARGET2
+    normalisation_plates:
+      - DMSO
+      - COMPOUND_EMPTY
+    include_compound_targets: false     # Include compounds with known targets
+    compound_target_weight: 0.1         # Down-weight compound-target samples
+    cache_dir: ./data/processed/pretraining
+
+  freeze:
+    decoder: true                       # Freeze autoencoder decoder
+    encoder: false                      # Autoencoder encoder not used in Phase 2
+    gradual_unfreeze: false             # Optionally unfreeze decoder later
+    unfreeze_after_epochs: 20
+
+  protein_encoder:
+    embedding_dim: 1280                 # ESM-2 650M dimension -- change based on ESM-2 size used
+    hidden_dims: [1024, 512]
+    output_dim: 256                     # Must match autoencoder.latent_dim
+    dropout: 0.1
+    activation: gelu
+
+  training:
+    epochs: 50
+    batch_size: 64
+    learning_rate: 0.0001
+    weight_decay: 0.01
+    optimiser: adamw
+    scheduler: cosine
+    warmup_epochs: 3
+    min_lr: 0.000001
+    gradient_accumulation_steps: 1
+    max_grad_norm: 1.0
+    use_amp: true
+    seed: 42
+
+# ---------------------------------------------------------------------------
+# Output paths
+# ---------------------------------------------------------------------------
+output:
+  checkpoint_dir: ./data/checkpoints/pretraining
+  log_dir: ./data/logs/pretraining

@@ -198,13 +198,16 @@ scripts/                  # Top-level CLI scripts
 ├── train_model.py
 ├── run_active_learning.py
 ├── download_jumpcp.py
-└── curate_pretraining.py
+├── curate_pretraining.py
+├── pretrain_mapping.py
+└── pretrain_phenotype.py
 
 configs/                  # Configuration files
 ├── default.yaml
 ├── experiment.yaml
 ├── deployment.yaml
-└── jumpcp.yaml
+├── jumpcp.yaml
+└── pretraining.yaml
 
 docker/                   # Container definitions
 ├── Dockerfile

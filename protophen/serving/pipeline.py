@@ -93,7 +93,7 @@ class PipelineConfig:
 # Checkpoint Utilities
 # =============================================================================
 
-# Keys that belong to TrainerConfig (Session 6), NOT ProToPhenConfig
+# Keys that belong to TrainerConfig, NOT ProToPhenConfig
 _TRAINER_CONFIG_KEYS = {
     "epochs", "learning_rate", "weight_decay", "optimiser", "scheduler",
     "warmup_steps", "warmup_ratio", "min_lr", "gradient_accumulation_steps",
@@ -101,13 +101,13 @@ _TRAINER_CONFIG_KEYS = {
     "task_weights", "seed",
 }
 
-# Keys that belong to ProToPhenConfig (Session 5)
+# Keys that belong to ProToPhenConfig
 _MODEL_CONFIG_KEYS = {
     "protein_embedding_dim", "encoder_hidden_dims", "encoder_output_dim",
     "encoder_dropout", "encoder_activation", "decoder_hidden_dims",
     "decoder_dropout", "cell_painting_dim", "predict_viability",
     "predict_transcriptomics", "transcriptomics_dim",
-    "predict_uncertainty", "use_spectral_norm", "mc_dropout",
+    "predict_uncertainty", "use_spectral_norm", "mc_dropout", "autoencoder_latent_dim", "use_pretrained_decoder", "freeze_decoder", "autoencoder_hidden_dims", "variational"
 }
 
 
@@ -134,6 +134,10 @@ def _infer_model_config_from_state_dict(
         - ``decoders.cell_painting.mean_head.weight`` → (cp_dim, ...)
         - ``decoders.viability.*`` presence → predict_viability
         - ``decoders.transcriptomics.*`` presence → predict_transcriptomics
+        
+    Also detects autoencoder decoder layers (``decoders.cell_painting.decoder_input_proj.*``,
+        ``decoders.cell_painting.decoder_layers.*``,
+        ``decoders.cell_painting.output_proj.*``) which indicate a Phase 2 checkpoint with ``AutoencoderDecoderHead`` replacing ``CellPaintingHead``.
     """
     config_kwargs: Dict[str, Any] = {}
 
@@ -161,26 +165,73 @@ def _infer_model_config_from_state_dict(
             break
     if hidden_dims:
         config_kwargs["encoder_hidden_dims"] = hidden_dims
+        
+    # --- detect autoencoder decoder head --------------------------------------------------
+     # Phase 2 checkpoints have AutoencoderDecoderHead as the cell_painting
+    # decoder.  Its state-dict keys differ from CellPaintingHead:
+    #   CellPaintingHead:        decoders.cell_painting.shared.*, .mean_head.*
+    #   AutoencoderDecoderHead:  decoders.cell_painting.decoder_input_proj.*,
+    #                            .decoder_layers.*, .output_proj.*
+    
+    has_autoencoder_decoder = any(
+        k.startswith("decoders.cell_painting.decoder_input_proj.")
+        for k in state_dict
+    )
 
-    # --- decoder hidden dims (from cell_painting shared layers) -------------
-    decoder_hidden: List[int] = []
-    dec_idx = 0
-    while True:
-        # CellPaintingHead uses nn.Sequential with groups of 4 (Linear, LN, GELU, Dropout)
-        linear_key = f"decoders.cell_painting.shared.{dec_idx * 4}.weight"
-        if linear_key in state_dict:
-            decoder_hidden.append(state_dict[linear_key].shape[0])
-            dec_idx += 1
-        else:
-            break
-    if decoder_hidden:
-        config_kwargs["decoder_hidden_dims"] = decoder_hidden
+    if has_autoencoder_decoder:
+        logger.info(
+            "Detected AutoencoderDecoderHead in state dict "
+            "(Phase 2 checkpoint)"
+        )
 
-    # --- cell_painting_dim --------------------------------------------------
-    if "decoders.cell_painting.mean_head.weight" in state_dict:
-        config_kwargs["cell_painting_dim"] = state_dict[
-            "decoders.cell_painting.mean_head.weight"
-        ].shape[0]
+        # Infer autoencoder latent dim from decoder_input_proj weight
+        # decoder_input_proj is nn.Sequential: [0]=Linear, [1]=LayerNorm, ...
+        dip_key = "decoders.cell_painting.decoder_input_proj.0.weight"
+        if dip_key in state_dict:
+            first_dec_hidden = state_dict[dip_key].shape[0]
+            autoencoder_latent_dim = state_dict[dip_key].shape[1]
+            config_kwargs["encoder_output_dim"] = autoencoder_latent_dim
+
+        # Infer cell_painting_dim from output_proj
+        op_key = "decoders.cell_painting.output_proj.weight"
+        if op_key in state_dict:
+            config_kwargs["cell_painting_dim"] = state_dict[op_key].shape[0]
+
+        # Infer autoencoder decoder hidden dims
+        ae_dec_hidden: List[int] = []
+        ae_layer_idx = 0
+        while True:
+            ae_key = f"decoders.cell_painting.decoder_layers.{ae_layer_idx}.linear.weight"
+            if ae_key in state_dict:
+                ae_dec_hidden.append(state_dict[ae_key].shape[0])
+                ae_layer_idx += 1
+            else:
+                break
+
+        # Store decoder hidden dims for the model config
+        if ae_dec_hidden:
+            config_kwargs["decoder_hidden_dims"] = ae_dec_hidden
+
+    else:
+        # --- decoder hidden dims (from cell_painting shared layers) -------------
+        decoder_hidden: List[int] = []
+        dec_idx = 0
+        while True:
+            # CellPaintingHead uses nn.Sequential with groups of 4 (Linear, LN, GELU, Dropout)
+            linear_key = f"decoders.cell_painting.shared.{dec_idx * 4}.weight"
+            if linear_key in state_dict:
+                decoder_hidden.append(state_dict[linear_key].shape[0])
+                dec_idx += 1
+            else:
+                break
+        if decoder_hidden:
+            config_kwargs["decoder_hidden_dims"] = decoder_hidden
+
+        # --- cell_painting_dim --------------------------------------------------
+        if "decoders.cell_painting.mean_head.weight" in state_dict:
+            config_kwargs["cell_painting_dim"] = state_dict[
+                "decoders.cell_painting.mean_head.weight"
+            ].shape[0]
 
     # --- predict_viability --------------------------------------------------
     config_kwargs["predict_viability"] = any(
@@ -205,6 +256,7 @@ def _infer_model_config_from_state_dict(
         f"input={config_kwargs.get('protein_embedding_dim', '?')}, "
         f"latent={config_kwargs.get('encoder_output_dim', '?')}, "
         f"cp_dim={config_kwargs.get('cell_painting_dim', '?')}"
+        f"autoencoder_decoder={has_autoencoder_decoder}"
     )
 
     return ProToPhenConfig(**config_kwargs)
@@ -275,11 +327,26 @@ def load_checkpoint(
         )
         checkpoint["_trainer_config"] = raw_config
         checkpoint["config"] = {}  # will be inferred later
+        
+    # --- Log phase info if present --------------------------------------------------
+    phase = checkpoint.get("phase")
+    if phase is not None:
+        logger.info(
+            f"Checkpoint is Phase {phase}"
+            + (
+                f" (Phase 1 ref: {checkpoint.get('phase1_checkpoint', 'N/A')})"
+                if phase == 2
+                else ""
+            )
+        )
 
     # --- Normalise version --------------------------------------------------
     if "version" not in checkpoint:
         epoch = checkpoint.get("epoch", -1)
-        checkpoint["version"] = f"epoch_{epoch}" if epoch >= 0 else "unknown"
+        if phase is not None:
+            checkpoint["version"] = f"phase{phase}_epoch_{epoch}" if epoch >= 0 else f"phase{phase}_unknown"
+        else:
+            checkpoint["version"] = f"epoch_{epoch}" if epoch >= 0 else "unknown"
 
     # --- Normalise metrics --------------------------------------------------
     if "metrics" not in checkpoint:
@@ -302,7 +369,11 @@ def build_model_from_checkpoint(
     Reconstruct a ``ProToPhenModel`` from a checkpoint.
 
     Handles both checkpoints that store ``ProToPhenConfig`` directly and
-    those from the Trainer (Session 6) that store ``TrainerConfig``.
+    those from the Trainer that store ``TrainerConfig``.
+    
+    Also handles Phase2 checkpoints containing an ``AutoencoderDecoderHead``. When
+    ``autoencoder_config`` is in the checkpoint, the model's Cell Painting decoder 
+    is replaced with an ``AutoencoderDecoderHead`` before loading the state dict.
 
     Args:
         checkpoint: Dictionary returned by :func:`load_checkpoint`.
@@ -329,6 +400,75 @@ def build_model_from_checkpoint(
         config = _infer_model_config_from_state_dict(state_dict)
 
     model = ProToPhenModel(config)
+    
+    # Replace cell_painting head if checkpoint is Phase 2
+    has_autoencoder_decoder = any(
+        k.startswith("decoders.cell_painting.decoder_input_proj.")
+        for k in state_dict
+    )
+    
+    if has_autoencoder_decoder and "autoencoder_config" in checkpoint:
+        from protophen.models.autoencoder import (
+            PhenotypeAutoencoder,
+            PhenotypeAutoencoderConfig,
+        )
+        
+        ae_config_dict = dict(checkpoint["autoencoder_config"])
+        ae_config_dict.pop("effective_decoder_hidden_dims", None)
+        ae_config = PhenotypeAutoencoderConfig(**ae_config_dict)
+        
+        # Build a fresh autoencoder and extract its decoder head
+        ae = PhenotypeAutoencoder(ae_config)
+        decoder_head = ae.get_decoder_head(freeze=True)
+        
+        # Replace the default CellPaintingHead so that state_dict keys align
+        model.decoders["cell_painting"] = decoder_head
+        
+        logger.info(
+            f"Replaced cell_painting decoder with AutoencoderDecoderHead "
+            f"(latent_dim={ae_config.latent_dim}, "
+            f"output_dim={ae_config.input_dim})"
+        )
+    elif has_autoencoder_decoder:
+        # No autoencoder_config in checkpoint, so attempt best effort
+        # reconstruction from state_dict shapes.
+        logger.warning(
+            "Phase 2 checkpoint detected by no 'autoencoder_config' found. "
+            "Attempting best-effort AutoencoderDecoderHead reconstruction."
+        )
+        from protophen.models.autoencoder import (
+            PhenotypeAutoencoder,
+            PhenotypeAutoencoderConfig,
+        )
+        
+        # Infer latent_dim and input_dim from state dict
+        dip_key = "decoders.cell_painting.decoder_input_proj.0.weight"
+        op_key = "decoders.cell_painting.output_proj.weight"
+        ae_latent_dim = state_dict[dip_key].shape[1] if dip_key in state_dict else config.encoder_output_dim
+        ae_input_dim = state_dict[op_key].shape[0] if op_key in state_dict else config.cell_painting_dim
+        
+        # Infer decoder hidden dims
+        ae_dec_dims: List[int] = []
+        dip_first_dim = state_dict[dip_key].shape[0] if dip_key in state_dict else 512
+        ae_dec_dims_list = [dip_first_dim]
+        idx = 0
+        while True:
+            k = f"decoders.cell_painting.decoder_layers.{idx}.linear.weight"
+            if k in state_dict:
+                ae_dec_dims_list.append(state_dict[k].shape[0])
+                idx += 1
+            else:
+                break
+            
+        ae_config = PhenotypeAutoencoderConfig(
+            input_dim=ae_input_dim,
+            latent_dim=ae_latent_dim,
+            encoder_hidden_dims=[512,256],  # N.B. this is a placeholder -- the encoder is not used.
+            decoder_hidden_dims=ae_dec_dims_list if len(ae_dec_dims_list) > 1 else None,
+            use_skip_connections=False,     # Phase 2 decoder has no skips
+        )
+        ae = PhenotypeAutoencoder(ae_config)
+        model.decoders["cell_painting"] = ae.get_decoder_head(freeze=True)
 
     # Load weights (strict=False tolerates minor mismatches from config evolution)
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
@@ -383,6 +523,12 @@ class InferencePipeline:
             "MKFLILLFNILCLFPVLAADNHGVGPQGAS",
             return_uncertainty=True,
             n_mc_samples=50,
+        )
+        
+        # With phenotype latent
+        result = pipeline.predict(
+            "MKFLILLFNILCLFPVLAADNHGVGPQGAS",
+            return_phenotype_latent=True,
         )
     """
 
@@ -487,6 +633,8 @@ class InferencePipeline:
         Handles checkpoints produced by both ``Trainer.save_checkpoint()``
         and ``CheckpointCallback`` (Session 6), as well as registry-style
         checkpoints that include ``model_config`` and ``version``.
+        
+        Also handles Phase 1 and Phase 2 checkpoints from the 2-phase pre-training pipeline.
         """
         checkpoint = load_checkpoint(checkpoint_path, device=self.device)
         self._model = build_model_from_checkpoint(checkpoint, device=self.device)
@@ -532,6 +680,15 @@ class InferencePipeline:
     def trainer_config(self) -> Optional[Dict[str, Any]]:
         """TrainerConfig from the loaded checkpoint (if available)."""
         return self._trainer_config
+    
+    @property
+    def has_autoencoder_decoder(self) -> bool:
+        """Whether the loaded model uses an AutoencoderDecoderHead."""
+        if self._model is None:
+            return False
+        from protophen.models.autoencoder import AutoencoderDecoderHead
+        cp_head = self._model.decoders.get("cell_painting")
+        return isinstance(cp_head, AutoencoderDecoderHead)
 
     # =========================================================================
     # Embedding
@@ -575,7 +732,25 @@ class InferencePipeline:
         return_uncertainty: bool = False,
         n_mc_samples: Optional[int] = None,
         protein_name: Optional[str] = None,
+        return_phenotype_latent: bool = False,
     ) -> PredictionResponse:
+        """
+        Predict cellular phenotype from a protein sequence.
+        
+        The ``return_phenotype_latent`` parameter relates to the 2-phase pre-training pipeline. When the model uses and ``AutoencoderDecoderHead`` (Phase 2 checkpoint), the phenotype latent (intermediate autoencoder representation) can be included in the response alongside the reconstructed features.
+        
+        Args:
+            sequence: Amino acid sequence.
+            tasks: Tasks to predict (None = all).
+            return_latent: Include protein encoder latent in response.
+            return_uncertainty: Include MC-Dropout uncertainty estimates.
+            n_mc_samples: Number of MC-Dropout forward passes.
+            protein_name: Optional protein name.
+            return_phenotype_latent: Include phenotype autoencoder latent.
+            
+        Returns:
+            PredictionResponse with predictions and optional extras.
+        """
         t0 = time.perf_counter()
         model = self._ensure_model()
 
@@ -596,7 +771,10 @@ class InferencePipeline:
             predictions, uncertainties = self._format_uncertainty(raw, n_samples)
         else:
             raw = model.predict(tensor, tasks=tasks)
-            predictions = self._format_predictions(raw)
+            predictions = self._format_predictions(
+                raw,
+                return_phenotype_latent=return_phenotype_latent,
+            )
             uncertainties = None
 
         latent_list = None
@@ -604,6 +782,11 @@ class InferencePipeline:
             with torch.no_grad():
                 latent_vec = model.get_latent(tensor)
             latent_list = latent_vec.squeeze(0).cpu().tolist()
+            
+        # Retrieve phenotype latent from decoder
+        phenotype_latent_list = None
+        if return_phenotype_latent:
+            phenotype_latent_list = self._get_phenotype_latent()
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -614,6 +797,7 @@ class InferencePipeline:
             predictions=predictions,
             uncertainty=uncertainties,
             latent=latent_list,
+            phenotype_latent=phenotype_latent_list,
             model_version=self._model_version,
             inference_time_ms=round(elapsed_ms, 2),
         )
@@ -626,6 +810,7 @@ class InferencePipeline:
         return_uncertainty: bool = False,
         n_mc_samples: Optional[int] = None,
         protein_names: Optional[List[str]] = None,
+        return_phenotype_latent: bool = False,
     ) -> List[PredictionResponse]:
         if protein_names is not None and len(protein_names) != len(sequences):
             raise ValueError("protein_names must match sequences in length.")
@@ -647,22 +832,61 @@ class InferencePipeline:
                     return_uncertainty=return_uncertainty,
                     n_mc_samples=n_mc_samples,
                     protein_name=name,
+                    return_phenotype_latent=return_phenotype_latent,
                 )
                 results.append(resp)
 
         return results
+
+    # ========================================================================
+    # Phenotype latent retrieval (Phase 2 pre-training autoencoder decoder)
+    # ========================================================================
+    
+    def _get_phenotype_latent(self) -> Optional[List[float]]:
+        """Retrieve the phenotype latent from the AutoencoderDecoderHead cache.
+        
+        Returns None if the model does not use an autoencoder decoder or if no cached latent is available.
+        """
+        if self._model is None:
+            return None
+        
+        from protophen.models.autoencoder import AutoencoderDecoderHead
+        
+        cp_head = self._model.decoders.get("cell_painting")
+        if isinstance(cp_head, AutoencoderDecoderHead):
+            cached = cp_head.get_last_latent()
+            if cached is not None:
+                return cached.squeeze(0).cpu().tolist()
+            
+        return None
+
 
     # =========================================================================
     # Formatting helpers
     # =========================================================================
 
     @staticmethod
-    def _format_predictions(raw: Dict[str, torch.Tensor]) -> List[TaskPrediction]:
+    def _format_predictions(
+        raw: Dict[str, torch.Tensor],
+        return_phenotype_latent: bool = False,
+    ) -> List[TaskPrediction]:
+        """
+        Format raw model output into TaskPrediction objects.
+        
+        Includes filtering for ``_latent`` suffix keys. 
+        Keys ending in ``_latent`` are excluded from predictions unless ``return_phenotype_latent`` is True.
+        Keys ending in ``_log_var`` and ``_std`` are always excluded (as they belong to uncertainty output). 
+        """
         preds = []
         for task_name, tensor in raw.items():
+            # Always filter uncertainty-related keys
             if task_name.endswith("_log_var") or task_name.endswith("_std"):
                 continue
+            # Filter protein latent (returned via a separate field)
             if task_name == "latent":
+                continue
+            # Filter phenotype latent (unless explicitly requested)
+            if task_name == "phenotype_latent" and not return_phenotype_latent:
                 continue
             values = tensor.squeeze(0).cpu().tolist()
             if not isinstance(values, list):
@@ -710,7 +934,7 @@ class InferencePipeline:
     def get_model_info(self) -> Dict[str, Any]:
         model = self._ensure_model()
         summary = model.summary()
-        return {
+        info = {
             "model_version": self._model_version,
             "model_name": "ProToPhen",
             "tasks": summary["tasks"],
@@ -725,6 +949,18 @@ class InferencePipeline:
             "device": self.device,
             "loaded_at": self._model_loaded_at or "",
         }
+        
+        # Include autoencoder info
+        info["has_autoencoder_decoder"] = self.has_autoencoder_decoder
+        phase = self._checkpoint_meta.get("phase")
+        if phase is not None:
+            info["pretraining_phase"] = phase
+        ae_config = self._checkpoint_meta.get("autoencoder_config")
+        if ae_config is not None:
+            info["autoencoder_config"] = ae_config.get("latent_dim")
+            info["autoencoder_variational"] = ae_config.get("variational", False)
+            
+        return info
 
     def health_check(self) -> Dict[str, Any]:
         checks = {
